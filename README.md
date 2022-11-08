@@ -1,5 +1,4 @@
 <HEAD>
-  <TITLE> Heart </TITLE>
   <META NAME="Generator" CONTENT="EditPlus">
   <META NAME="Author" CONTENT="">
   <META NAME="Keywords" CONTENT="">
