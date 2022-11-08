@@ -42,8 +42,8 @@
       animation: animate 1.3s infinite;
     }
 
-    #pinkboard:before,
-    #pinkboard:after {
+    #redboard:before,
+    #redboard:after {
       content: '';
       position: absolute;
       background: #FF5CA4;
@@ -53,7 +53,7 @@
       border-top-right-radius: 50px;
     }
 
-    #pinkboard:before {
+    #redboard:before {
       left: 100px;
       transform: rotate(-45deg);
       transform-origin: 0 100%;
@@ -61,7 +61,7 @@
         0 10px 10px rgba(0, 0, 0, 0.22);
     }
 
-    #pinkboard:after {
+    #redboard:after {
       left: 0;
       transform: rotate(45deg);
       transform-origin: 100% 100%;
