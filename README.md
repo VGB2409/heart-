@@ -1,325 +1,144 @@
-<HEAD>
-  <META NAME="Generator" CONTENT="EditPlus">
-  <META NAME="Author" CONTENT="">
-  <META NAME="Keywords" CONTENT="">
-  <META NAME="Description" CONTENT="">
-
-
-  <style>
-    html,
-    body {
-      height: 100%;
-      padding: 0;
-      margin: 0;
-      background: #000;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-
-    }
-
-    .box {
-      width: 100%;
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      display: flex;
-      flex-direction: column;
-    }
-
-    canvas {
-      position: absolute;
-      width: 100%;
-      height: 100%;
-    }
-
-    #pinkboard {
-      position: relative;
-      margin: auto;
-      height: 500px;
-      width: 500px;
-      animation: animate 1.3s infinite;
-    }
-
-    #redboard:before,
-    #redboard:after {
-      content: '';
-      position: absolute;
-      background: #FF5CA4;
-      width: 100px;
-      height: 160px;
-      border-top-left-radius: 50px;
-      border-top-right-radius: 50px;
-    }
-
-    #redboard:before {
-      left: 100px;
-      transform: rotate(-45deg);
-      transform-origin: 0 100%;
-      box-shadow: 0 14px 28px rgba(0, 0, 0, 0.25),
-        0 10px 10px rgba(0, 0, 0, 0.22);
-    }
-
-    #redboard:after {
-      left: 0;
-      transform: rotate(45deg);
-      transform-origin: 100% 100%;
-    }
-
-    @keyframes animate {
-      0% {
-        transform: scale(1);
-      }
-
-      30% {
-        transform: scale(.8);
-      }
-
-      60% {
-        transform: scale(1.2);
-      }
-
-      100% {
-        transform: scale(1);
-      }
-    }
-  </style>
-</HEAD>
-
-<BODY>
-  <div class="box">
-    <canvas id="pinkboard"></canvas>
-  </div>
-  <script>
-    /*
-   * Settings
-   */
-    var settings = {
-      particles: {
-        length: 2000, // maximum amount of particles
-        duration: 2, // particle duration in sec
-        velocity: 100, // particle velocity in pixels/sec
-        effect: -1.3, // play with this for a nice effect
-        size: 13, // particle size in pixels
-      },
-    };
-    /*
-     * RequestAnimationFrame polyfill by Erik Möller
-     */
-    (function () {var b = 0; var c = ["ms", "moz", "webkit", "o"]; for (var a = 0; a < c.length && !window.requestAnimationFrame; ++a) {window.requestAnimationFrame = window[c[a] + "RequestAnimationFrame"]; window.cancelAnimationFrame = window[c[a] + "CancelAnimationFrame"] || window[c[a] + "CancelRequestAnimationFrame"]} if (!window.requestAnimationFrame) {window.requestAnimationFrame = function (h, e) {var d = new Date().getTime(); var f = Math.max(0, 16 - (d - b)); var g = window.setTimeout(function () {h(d + f)}, f); b = d + f; return g}} if (!window.cancelAnimationFrame) {window.cancelAnimationFrame = function (d) {clearTimeout(d)}} }());
-    /*
-     * Point class
-     */
-    var Point = (function () {
-      function Point(x, y) {
-        this.x = (typeof x !== 'undefined') ? x : 0;
-        this.y = (typeof y !== 'undefined') ? y : 0;
-      }
-      Point.prototype.clone = function () {
-        return new Point(this.x, this.y);
-      };
-      Point.prototype.length = function (length) {
-        if (typeof length == 'undefined')
-          return Math.sqrt(this.x * this.x + this.y * this.y);
-        this.normalize();
-        this.x *= length;
-        this.y *= length;
-        return this;
-      };
-      Point.prototype.normalize = function () {
-        var length = this.length();
-        this.x /= length;
-        this.y /= length;
-        return this;
-      };
-      return Point;
-    })();
-    /*
-     * Particle class
-     */
-    var Particle = (function () {
-      function Particle() {
-        this.position = new Point();
-        this.velocity = new Point();
-        this.acceleration = new Point();
-        this.age = 0;
-      }
-      Particle.prototype.initialize = function (x, y, dx, dy) {
-        this.position.x = x;
-        this.position.y = y;
-        this.velocity.x = dx;
-        this.velocity.y = dy;
-        this.acceleration.x = dx * settings.particles.effect;
-        this.acceleration.y = dy * settings.particles.effect;
-        this.age = 0;
-      };
-      Particle.prototype.update = function (deltaTime) {
-        this.position.x += this.velocity.x * deltaTime;
-        this.position.y += this.velocity.y * deltaTime;
-        this.velocity.x += this.acceleration.x * deltaTime;
-        this.velocity.y += this.acceleration.y * deltaTime;
-        this.age += deltaTime;
-      };
-      Particle.prototype.draw = function (context, image) {
-        function ease(t) {
-          return (--t) * t * t + 1;
-        }
-        var size = image.width * ease(this.age / settings.particles.duration);
-        context.globalAlpha = 1 - this.age / settings.particles.duration;
-        context.drawImage(image, this.position.x - size / 2, this.position.y - size / 2, size, size);
-      };
-      return Particle;
-    })();
-    /*
-     * ParticlePool class
-     */
-    var ParticlePool = (function () {
-      var particles,
-        firstActive = 0,
-        firstFree = 0,
-        duration = settings.particles.duration;
-
-      function ParticlePool(length) {
-        // create and populate particle pool
-        particles = new Array(length);
-        for (var i = 0; i < particles.length; i++)
-          particles[i] = new Particle();
-      }
-      ParticlePool.prototype.add = function (x, y, dx, dy) {
-        particles[firstFree].initialize(x, y, dx, dy);
-
-        // handle circular queue
-        firstFree++;
-        if (firstFree == particles.length) firstFree = 0;
-        if (firstActive == firstFree) firstActive++;
-        if (firstActive == particles.length) firstActive = 0;
-      };
-      ParticlePool.prototype.update = function (deltaTime) {
-        var i;
-
-        // update active particles
-        if (firstActive < firstFree) {
-          for (i = firstActive; i < firstFree; i++)
-            particles[i].update(deltaTime);
-        }
-        if (firstFree < firstActive) {
-          for (i = firstActive; i < particles.length; i++)
-            particles[i].update(deltaTime);
-          for (i = 0; i < firstFree; i++)
-            particles[i].update(deltaTime);
-        }
-
-        // remove inactive particles
-        while (particles[firstActive].age >= duration && firstActive != firstFree) {
-          firstActive++;
-          if (firstActive == particles.length) firstActive = 0;
-        }
-
-
-      };
-      ParticlePool.prototype.draw = function (context, image) {
-        // draw active particles
-        if (firstActive < firstFree) {
-          for (i = firstActive; i < firstFree; i++)
-            particles[i].draw(context, image);
-        }
-        if (firstFree < firstActive) {
-          for (i = firstActive; i < particles.length; i++)
-            particles[i].draw(context, image);
-          for (i = 0; i < firstFree; i++)
-            particles[i].draw(context, image);
-        }
-      };
-      return ParticlePool;
-    })();
-    /*
-     * Putting it all together
-     */
-    (function (canvas) {
-      var context = canvas.getContext('2d'),
-        particles = new ParticlePool(settings.particles.length),
-        particleRate = settings.particles.length / settings.particles.duration, // particles/sec
-        time;
-
-      // get point on heart with -PI <= t <= PI
-      function pointOnHeart(t) {
-        return new Point(
-          160 * Math.pow(Math.sin(t), 3),
-          130 * Math.cos(t) - 50 * Math.cos(2 * t) - 20 * Math.cos(3 * t) - 10 * Math.cos(4 * t) + 25
-        );
-      }
-
-      // creating the particle image using a dummy canvas
-      var image = (function () {
-        var canvas = document.createElement('canvas'),
-          context = canvas.getContext('2d');
-        canvas.width = settings.particles.size;
-        canvas.height = settings.particles.size;
-        // helper function to create the path
-        function to(t) {
-          var point = pointOnHeart(t);
-          point.x = settings.particles.size / 2 + point.x * settings.particles.size / 350;
-          point.y = settings.particles.size / 2 - point.y * settings.particles.size / 350;
-          return point;
-        }
-        // create the path
-        context.beginPath();
-        var t = -Math.PI;
-        var point = to(t);
-        context.moveTo(point.x, point.y);
-        while (t < Math.PI) {
-          t += 0.01; // baby steps!
-          point = to(t);
-          context.lineTo(point.x, point.y);
-        }
-        context.closePath();
-        // create the fill
-        context.fillStyle = '#FF5CA4';
-        context.fill();
-        // create the image
-        var image = new Image();
-        image.src = canvas.toDataURL();
-        return image;
-      })();
-
-      // render that thing!
-      function render() {
-        // next animation frame
-        requestAnimationFrame(render);
-
-        // update time
-        var newTime = new Date().getTime() / 1000,
-          deltaTime = newTime - (time || newTime);
-        time = newTime;
-
-        // clear canvas
-        context.clearRect(0, 0, canvas.width, canvas.height);
-
-        // create new particles
-        var amount = particleRate * deltaTime;
-        for (var i = 0; i < amount; i++) {
-          var pos = pointOnHeart(Math.PI - 2 * Math.PI * Math.random());
-          var dir = pos.clone().length(settings.particles.velocity);
-          particles.add(canvas.width / 2 + pos.x, canvas.height / 2 - pos.y, dir.x, -dir.y);
-        }
-
-        // update and draw particles
-        particles.update(deltaTime);
-        particles.draw(context, image);
-      }
-
-      // handle (re-)sizing of the canvas
-      function onResize() {
-        canvas.width = canvas.clientWidth;
-        canvas.height = canvas.clientHeight;
-      }
-      window.onresize = onResize;
-
-      // delay rendering bootstrap
-      setTimeout(function () {
-        onResize();
-        render();
-      }, 10);
-    })(document.getElementById('pinkboard'));
-  </script>
+import random
+from math import sin, cos, pi, log
+from tkinter import *
+CANVAS_WIDTH = 640  # 画布的宽
+CANVAS_HEIGHT = 480  # 画布的高
+CANVAS_CENTER_X = CANVAS_WIDTH / 2  # 画布中心的X轴坐标
+CANVAS_CENTER_Y = CANVAS_HEIGHT / 2  # 画布中心的Y轴坐标
+IMAGE_ENLARGE = 11  # 放大比例
+HEART_COLOR = "#ff2121"  # 心的颜色，这个是中国红
+def heart_function(t, shrink_ratio: float = IMAGE_ENLARGE):
+    """
+    “爱心函数生成器”
+    :param shrink_ratio: 放大比例
+    :param t: 参数
+    :return: 坐标
+    """
+    # 基础函数
+    x = 16 * (sin(t) ** 3)
+    y = -(13 * cos(t) - 5 * cos(2 * t) - 2 * cos(3 * t) - cos(4 * t))
+    # 放大
+    x *= shrink_ratio
+    y *= shrink_ratio
+    # 移到画布中央
+    x += CANVAS_CENTER_X
+    y += CANVAS_CENTER_Y
+    return int(x), int(y)
+def scatter_inside(x, y, beta=0.15):
+    """
+    随机内部扩散
+    :param x: 原x
+    :param y: 原y
+    :param beta: 强度
+    :return: 新坐标
+    """
+    ratio_x = - beta * log(random.random())
+    ratio_y = - beta * log(random.random())
+    dx = ratio_x * (x - CANVAS_CENTER_X)
+    dy = ratio_y * (y - CANVAS_CENTER_Y)
+    return x - dx, y - dy
+def shrink(x, y, ratio):
+    """
+    抖动
+    :param x: 原x
+    :param y: 原y
+    :param ratio: 比例
+    :return: 新坐标
+    """
+    force = -1 / (((x - CANVAS_CENTER_X) ** 2 + (y - CANVAS_CENTER_Y) ** 2) ** 0.6)  # 这个参数...
+    dx = ratio * force * (x - CANVAS_CENTER_X)
+    dy = ratio * force * (y - CANVAS_CENTER_Y)
+    return x - dx, y - dy
+def curve(p):
+    """
+    自定义曲线函数，调整跳动周期
+    :param p: 参数
+    :return: 正弦
+    """
+    # 可以尝试换其他的动态函数，达到更有力量的效果（贝塞尔？）
+    return 2 * (2 * sin(4 * p)) / (2 * pi)
+class Heart:
+    """
+    爱心类
+    """
+    def __init__(self, generate_frame=20):
+        self._points = set()  # 原始爱心坐标集合
+        self._edge_diffusion_points = set()  # 边缘扩散效果点坐标集合
+        self._center_diffusion_points = set()  # 中心扩散效果点坐标集合
+        self.all_points = {}  # 每帧动态点坐标
+        self.build(2000)
+        self.random_halo = 1000
+        self.generate_frame = generate_frame
+        for frame in range(generate_frame):
+            self.calc(frame)
+    def build(self, number):
+        # 爱心
+        for _ in range(number):
+            t = random.uniform(0, 2 * pi)  # 随机不到的地方造成爱心有缺口
+            x, y = heart_function(t)
+            self._points.add((x, y))
+        # 爱心内扩散
+        for _x, _y in list(self._points):
+            for _ in range(3):
+                x, y = scatter_inside(_x, _y, 0.05)
+                self._edge_diffusion_points.add((x, y))
+        # 爱心内再次扩散
+        point_list = list(self._points)
+        for _ in range(4000):
+            x, y = random.choice(point_list)
+            x, y = scatter_inside(x, y, 0.17)
+            self._center_diffusion_points.add((x, y))
+    @staticmethod
+    def calc_position(x, y, ratio):
+        # 调整缩放比例
+        force = 1 / (((x - CANVAS_CENTER_X) ** 2 + (y - CANVAS_CENTER_Y) ** 2) ** 0.520)  # 魔法参数
+        dx = ratio * force * (x - CANVAS_CENTER_X) + random.randint(-1, 1)
+        dy = ratio * force * (y - CANVAS_CENTER_Y) + random.randint(-1, 1)
+        return x - dx, y - dy
+    def calc(self, generate_frame):
+        ratio = 10 * curve(generate_frame / 10 * pi)  # 圆滑的周期的缩放比例
+        halo_radius = int(4 + 6 * (1 + curve(generate_frame / 10 * pi)))
+        halo_number = int(3000 + 4000 * abs(curve(generate_frame / 10 * pi) ** 2))
+        all_points = []
+        # 光环
+        heart_halo_point = set()  # 光环的点坐标集合
+        for _ in range(halo_number):
+            t = random.uniform(0, 2 * pi)  # 随机不到的地方造成爱心有缺口
+            x, y = heart_function(t, shrink_ratio=11.6)  # 魔法参数
+            x, y = shrink(x, y, halo_radius)
+            if (x, y) not in heart_halo_point:
+                # 处理新的点
+                heart_halo_point.add((x, y))
+                x += random.randint(-14, 14)
+                y += random.randint(-14, 14)
+                size = random.choice((1, 2, 2))
+                all_points.append((x, y, size))
+        # 轮廓
+        for x, y in self._points:
+            x, y = self.calc_position(x, y, ratio)
+            size = random.randint(1, 3)
+            all_points.append((x, y, size))
+        # 内容
+        for x, y in self._edge_diffusion_points:
+            x, y = self.calc_position(x, y, ratio)
+            size = random.randint(1, 2)
+            all_points.append((x, y, size))
+        for x, y in self._center_diffusion_points:
+            x, y = self.calc_position(x, y, ratio)
+            size = random.randint(1, 2)
+            all_points.append((x, y, size))
+        self.all_points[generate_frame] = all_points
+    def render(self, render_canvas, render_frame):
+        for x, y, size in self.all_points[render_frame % self.generate_frame]:
+            render_canvas.create_rectangle(x, y, x + size, y + size, width=0, fill=HEART_COLOR)
+def draw(main: Tk, render_canvas: Canvas, render_heart: Heart, render_frame=0):
+    render_canvas.delete('all')
+    render_heart.render(render_canvas, render_frame)
+    main.after(160, draw, main, render_canvas, render_heart, render_frame + 1)
+if __name__ == '__main__':
+    root = Tk()  # 一个Tk
+    canvas = Canvas(root, bg='black', height=CANVAS_HEIGHT, width=CANVAS_WIDTH)
+    canvas.pack()
+    heart = Heart()  # 心
+    draw(root, canvas, heart)  # 开始画画~
+    root.mainloop()
