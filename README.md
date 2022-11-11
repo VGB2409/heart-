@@ -1,144 +1,171 @@
-import random
-from math import sin, cos, pi, log
-from tkinter import *
-CANVAS_WIDTH = 640  # 画布的宽
-CANVAS_HEIGHT = 480  # 画布的高
-CANVAS_CENTER_X = CANVAS_WIDTH / 2  # 画布中心的X轴坐标
-CANVAS_CENTER_Y = CANVAS_HEIGHT / 2  # 画布中心的Y轴坐标
-IMAGE_ENLARGE = 11  # 放大比例
-HEART_COLOR = "#ff2121"  # 心的颜色，这个是中国红
-def heart_function(t, shrink_ratio: float = IMAGE_ENLARGE):
-    """
-    “爱心函数生成器”
-    :param shrink_ratio: 放大比例
-    :param t: 参数
-    :return: 坐标
-    """
-    # 基础函数
-    x = 16 * (sin(t) ** 3)
-    y = -(13 * cos(t) - 5 * cos(2 * t) - 2 * cos(3 * t) - cos(4 * t))
-    # 放大
-    x *= shrink_ratio
-    y *= shrink_ratio
-    # 移到画布中央
-    x += CANVAS_CENTER_X
-    y += CANVAS_CENTER_Y
-    return int(x), int(y)
-def scatter_inside(x, y, beta=0.15):
-    """
-    随机内部扩散
-    :param x: 原x
-    :param y: 原y
-    :param beta: 强度
-    :return: 新坐标
-    """
-    ratio_x = - beta * log(random.random())
-    ratio_y = - beta * log(random.random())
-    dx = ratio_x * (x - CANVAS_CENTER_X)
-    dy = ratio_y * (y - CANVAS_CENTER_Y)
-    return x - dx, y - dy
-def shrink(x, y, ratio):
-    """
-    抖动
-    :param x: 原x
-    :param y: 原y
-    :param ratio: 比例
-    :return: 新坐标
-    """
-    force = -1 / (((x - CANVAS_CENTER_X) ** 2 + (y - CANVAS_CENTER_Y) ** 2) ** 0.6)  # 这个参数...
-    dx = ratio * force * (x - CANVAS_CENTER_X)
-    dy = ratio * force * (y - CANVAS_CENTER_Y)
-    return x - dx, y - dy
-def curve(p):
-    """
-    自定义曲线函数，调整跳动周期
-    :param p: 参数
-    :return: 正弦
-    """
-    # 可以尝试换其他的动态函数，达到更有力量的效果（贝塞尔？）
-    return 2 * (2 * sin(4 * p)) / (2 * pi)
-class Heart:
-    """
-    爱心类
-    """
-    def __init__(self, generate_frame=20):
-        self._points = set()  # 原始爱心坐标集合
-        self._edge_diffusion_points = set()  # 边缘扩散效果点坐标集合
-        self._center_diffusion_points = set()  # 中心扩散效果点坐标集合
-        self.all_points = {}  # 每帧动态点坐标
-        self.build(2000)
-        self.random_halo = 1000
-        self.generate_frame = generate_frame
-        for frame in range(generate_frame):
-            self.calc(frame)
-    def build(self, number):
-        # 爱心
-        for _ in range(number):
-            t = random.uniform(0, 2 * pi)  # 随机不到的地方造成爱心有缺口
-            x, y = heart_function(t)
-            self._points.add((x, y))
-        # 爱心内扩散
-        for _x, _y in list(self._points):
-            for _ in range(3):
-                x, y = scatter_inside(_x, _y, 0.05)
-                self._edge_diffusion_points.add((x, y))
-        # 爱心内再次扩散
-        point_list = list(self._points)
-        for _ in range(4000):
-            x, y = random.choice(point_list)
-            x, y = scatter_inside(x, y, 0.17)
-            self._center_diffusion_points.add((x, y))
-    @staticmethod
-    def calc_position(x, y, ratio):
-        # 调整缩放比例
-        force = 1 / (((x - CANVAS_CENTER_X) ** 2 + (y - CANVAS_CENTER_Y) ** 2) ** 0.520)  # 魔法参数
-        dx = ratio * force * (x - CANVAS_CENTER_X) + random.randint(-1, 1)
-        dy = ratio * force * (y - CANVAS_CENTER_Y) + random.randint(-1, 1)
-        return x - dx, y - dy
-    def calc(self, generate_frame):
-        ratio = 10 * curve(generate_frame / 10 * pi)  # 圆滑的周期的缩放比例
-        halo_radius = int(4 + 6 * (1 + curve(generate_frame / 10 * pi)))
-        halo_number = int(3000 + 4000 * abs(curve(generate_frame / 10 * pi) ** 2))
-        all_points = []
-        # 光环
-        heart_halo_point = set()  # 光环的点坐标集合
-        for _ in range(halo_number):
-            t = random.uniform(0, 2 * pi)  # 随机不到的地方造成爱心有缺口
-            x, y = heart_function(t, shrink_ratio=11.6)  # 魔法参数
-            x, y = shrink(x, y, halo_radius)
-            if (x, y) not in heart_halo_point:
-                # 处理新的点
-                heart_halo_point.add((x, y))
-                x += random.randint(-14, 14)
-                y += random.randint(-14, 14)
-                size = random.choice((1, 2, 2))
-                all_points.append((x, y, size))
-        # 轮廓
-        for x, y in self._points:
-            x, y = self.calc_position(x, y, ratio)
-            size = random.randint(1, 3)
-            all_points.append((x, y, size))
-        # 内容
-        for x, y in self._edge_diffusion_points:
-            x, y = self.calc_position(x, y, ratio)
-            size = random.randint(1, 2)
-            all_points.append((x, y, size))
-        for x, y in self._center_diffusion_points:
-            x, y = self.calc_position(x, y, ratio)
-            size = random.randint(1, 2)
-            all_points.append((x, y, size))
-        self.all_points[generate_frame] = all_points
-    def render(self, render_canvas, render_frame):
-        for x, y, size in self.all_points[render_frame % self.generate_frame]:
-            render_canvas.create_rectangle(x, y, x + size, y + size, width=0, fill=HEART_COLOR)
-def draw(main: Tk, render_canvas: Canvas, render_heart: Heart, render_frame=0):
-    render_canvas.delete('all')
-    render_heart.render(render_canvas, render_frame)
-    main.after(160, draw, main, render_canvas, render_heart, render_frame + 1)
-if __name__ == '__main__':
-    root = Tk()  # 一个Tk
-    canvas = Canvas(root, bg='black', height=CANVAS_HEIGHT, width=CANVAS_WIDTH)
-    canvas.pack()
-    heart = Heart()  # 心
-    draw(root, canvas, heart)  # 开始画画~
-    root.mainloop()
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <style>
+        canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, .2);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="heart"></canvas>
+
+    <script>
+        window.requestAnimationFrame =
+            window.__requestAnimationFrame ||
+            window.requestAnimationFrame ||
+            window.webkitRequestAnimationFrame ||
+            window.mozRequestAnimationFrame ||
+            window.oRequestAnimationFrame ||
+            window.msRequestAnimationFrame ||
+            (function () {
+                return function (callback, element) {
+                    var lastTime = element.__lastTime;
+                    if (lastTime === undefined) {
+                        lastTime = 0;
+                    }
+                    var currTime = Date.now();
+                    var timeToCall = Math.max(1, 33 - (currTime - lastTime));
+                    window.setTimeout(callback, timeToCall);
+                    element.__lastTime = currTime + timeToCall;
+                };
+            })();
+        window.isDevice = (/android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(((navigator.userAgent || navigator.vendor || window.opera)).toLowerCase()));
+        var loaded = false;
+        var init = function () {
+            if (loaded) return;
+            loaded = true;
+            var mobile = window.isDevice;
+            var koef = mobile ? 0.5 : 1;
+            var canvas = document.getElementById('heart');
+            var ctx = canvas.getContext('2d');
+            var width = canvas.width = koef * innerWidth;
+            var height = canvas.height = koef * innerHeight;
+            var rand = Math.random;
+            ctx.fillStyle = "rgba(0,0,0,1)";
+            ctx.fillRect(0, 0, width, height);
+
+            var heartPosition = function (rad) {
+                //return [Math.sin(rad), Math.cos(rad)];
+                return [Math.pow(Math.sin(rad), 3), -(15 * Math.cos(rad) - 5 * Math.cos(2 * rad) - 2 * Math.cos(3 * rad) - Math.cos(4 * rad))];
+            };
+            var scaleAndTranslate = function (pos, sx, sy, dx, dy) {
+                return [dx + pos[0] * sx, dy + pos[1] * sy];
+            };
+
+            window.addEventListener('resize', function () {
+                width = canvas.width = koef * innerWidth;
+                height = canvas.height = koef * innerHeight;
+                ctx.fillStyle = "rgba(0,0,0,1)";
+                ctx.fillRect(0, 0, width, height);
+            });
+
+            var traceCount = mobile ? 20 : 50;
+            var pointsOrigin = [];
+            var i;
+            var dr = mobile ? 0.3 : 0.1;
+            for (i = 0; i < Math.PI * 2; i += dr) pointsOrigin.push(scaleAndTranslate(heartPosition(i), 210, 13, 0, 0));
+            for (i = 0; i < Math.PI * 2; i += dr) pointsOrigin.push(scaleAndTranslate(heartPosition(i), 150, 9, 0, 0));
+            for (i = 0; i < Math.PI * 2; i += dr) pointsOrigin.push(scaleAndTranslate(heartPosition(i), 90, 5, 0, 0));
+            var heartPointsCount = pointsOrigin.length;
+
+            var targetPoints = [];
+            var pulse = function (kx, ky) {
+                for (i = 0; i < pointsOrigin.length; i++) {
+                    targetPoints[i] = [];
+                    targetPoints[i][0] = kx * pointsOrigin[i][0] + width / 2;
+                    targetPoints[i][1] = ky * pointsOrigin[i][1] + height / 2;
+                }
+            };
+
+            var e = [];
+            for (i = 0; i < heartPointsCount; i++) {
+                var x = rand() * width;
+                var y = rand() * height;
+                e[i] = {
+                    vx: 0,
+                    vy: 0,
+                    R: 2,
+                    speed: rand() + 5,
+                    q: ~~(rand() * heartPointsCount),
+                    D: 2 * (i % 2) - 1,
+                    force: 0.2 * rand() + 0.7,
+                    f: "hsla(0," + ~~(40 * rand() + 60) + "%," + ~~(60 * rand() + 20) + "%,.3)",
+                    trace: []
+                };
+                for (var k = 0; k < traceCount; k++) e[i].trace[k] = { x: x, y: y };
+            }
+
+            var config = {
+                traceK: 0.4,
+                timeDelta: 0.01
+            };
+
+            var time = 0;
+            var loop = function () {
+                var n = -Math.cos(time);
+                pulse((1 + n) * .5, (1 + n) * .5);
+                time += ((Math.sin(time)) < 0 ? 9 : (n > 0.8) ? .2 : 1) * config.timeDelta;
+                ctx.fillStyle = "rgba(0,0,0,.1)";
+                ctx.fillRect(0, 0, width, height);
+                for (i = e.length; i--;) {
+                    var u = e[i];
+                    var q = targetPoints[u.q];
+                    var dx = u.trace[0].x - q[0];
+                    var dy = u.trace[0].y - q[1];
+                    var length = Math.sqrt(dx * dx + dy * dy);
+                    if (10 > length) {
+                        if (0.95 < rand()) {
+                            u.q = ~~(rand() * heartPointsCount);
+                        }
+                        else {
+                            if (0.99 < rand()) {
+                                u.D *= -1;
+                            }
+                            u.q += u.D;
+                            u.q %= heartPointsCount;
+                            if (0 > u.q) {
+                                u.q += heartPointsCount;
+                            }
+                        }
+                    }
+                    u.vx += -dx / length * u.speed;
+                    u.vy += -dy / length * u.speed;
+                    u.trace[0].x += u.vx;
+                    u.trace[0].y += u.vy;
+                    u.vx *= u.force;
+                    u.vy *= u.force;
+                    for (k = 0; k < u.trace.length - 1;) {
+                        var T = u.trace[k];
+                        var N = u.trace[++k];
+                        N.x -= config.traceK * (N.x - T.x);
+                        N.y -= config.traceK * (N.y - T.y);
+                    }
+                    ctx.fillStyle = u.f;
+                    for (k = 0; k < u.trace.length; k++) {
+                        ctx.fillRect(u.trace[k].x, u.trace[k].y, 1, 1);
+                    }
+                }
+                //ctx.fillStyle = "rgba(255,255,255,1)";
+                //for (i = u.trace.length; i--;) ctx.fillRect(targetPoints[i][0], targetPoints[i][1], 2, 2);
+
+                window.requestAnimationFrame(loop, canvas);
+            };
+            loop();
+        };
+
+        var s = document.readyState;
+        if (s === 'complete' || s === 'loaded' || s === 'interactive') init();
+        else document.addEventListener('DOMContentLoaded', init, false);
+    </script>
+</body>
+</html>
