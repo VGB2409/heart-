@@ -1,356 +1,808 @@
-from tkinter import *
-from matplotlib import pyplot as plt
-from PIL import Image
-import random
-import math
-import numpy as np
-import os
-import colorsys
-import cv2
-from scipy.ndimage.filters import gaussian_filter
-
-canvas_width = 600
-canvas_height = 600
-world_width = 0.05
-world_heigth = 0.05
-
-# 中间心的参数
-points = None
-fixed_point_size = 20000
-fixed_scale_range = (4, 4.3)
-min_scale = np.array([1.0, 1.0, 1.0]) * 0.9
-max_scale = np.array([1.0, 1.0, 1.0]) * 0.9
-min_heart_scale = -15
-max_heart_scale = 16
-
-# 外围随机心参数
-random_point_szie = 7000
-random_scale_range = (3.5, 3.9)
-random_point_maxvar = 0.2
-
-# 心算法参数
-mid_point_ignore = 0.95
-
-# 相机参数
-camera_close_plane = 0.1
-camera_position = np.array([0.0, -2.0, 0.0])
-
-# 点的颜色
-hue = 0.92
-color_strength = 255
-
-# 常用向量缓存
-zero_scale = np.array([0.0, 0.0, 0.0])
-unit_scale = np.array([1.0, 1.0, 1.0])
-color_white = np.array([255, 255, 255])
-axis_y = np.array([0.0, 1.0, 0.0])
-
-# 渲染缓存
-render_buffer = np.empty((canvas_width, canvas_height, 3), dtype=int)
-strength_buffer = np.empty((canvas_width, canvas_height), dtype=float)
-
-# 随机点文件缓存
-points_file = "temp.txt"
-
-# 渲染结果
-total_frames = 30
-output_dir = "./output"
-
-# 格式
-image_fmt = "jpg"
-
-def color(value):
-    digit = list(map(str, range(10))) + list("ABCDEF")
-    string = '#'
-    for i in value:
-        a1 = i // 16
-        a2 = i % 16
-        string += digit[a1] + digit[a2]
-    return string
+body {
+    background: #e0e5ec;
+  }
+  h1 {
+    position: relative;
+    text-align: center;
+    color: #353535;
+    font-size: 50px;
+    font-family: "Cormorant Garamond", serif;
+  }
+  
+  p {
+    font-family: 'Lato', sans-serif;
+    font-weight: 300;
+    text-align: center;
+    font-size: 18px;
+    color: #676767;
+  }
+  .frame {
+    width: 90%;
+    margin: 40px auto;
+    text-align: center;
+  }
+  button {
+    margin: 20px;
+  }
+  .custom-btn {
+    width: 130px;
+    height: 40px;
+    color: #fff;
+    border-radius: 5px;
+    padding: 10px 25px;
+    font-family: 'Lato', sans-serif;
+    font-weight: 500;
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    display: inline-block;
+     box-shadow:inset 2px 2px 2px 0px rgba(255,255,255,.5),
+     7px 7px 20px 0px rgba(0,0,0,.1),
+     4px 4px 5px 0px rgba(0,0,0,.1);
+    outline: none;
+  }
+  
+  /* 1 */
+  .btn-1 {
+    background: rgb(6,14,131);
+    background: linear-gradient(0deg, rgba(6,14,131,1) 0%, rgba(12,25,180,1) 100%);
+    border: none;
+  }
+  .btn-1:hover {
+     background: rgb(0,3,255);
+  background: linear-gradient(0deg, rgba(0,3,255,1) 0%, rgba(2,126,251,1) 100%);
+  }
+  
+  /* 2 */
+  .btn-2 {
+    background: rgb(96,9,240);
+    background: linear-gradient(0deg, rgba(96,9,240,1) 0%, rgba(129,5,240,1) 100%);
+    border: none;
     
-
-def heart_func(x, y, z, scale):
-    bscale = scale
-    bscale_half = bscale / 2
-    x = x * bscale - bscale_half
-    y = y * bscale - bscale_half
-    z = z * bscale - bscale_half
-    return (x**2 + 9/4*(y**2) + z**2 - 1)**3 - (x**2)*(z**3) - 9/200*(y**2)*(z**3)
-
-def lerp_vector(a, b, ratio):
-    result = a.copy()
-    for i in range(3):
-        result[i] = a[i] + (b[i] - a[i]) * ratio
-    return result
-
-def lerp_int(a, b, ratio):
-    return (int)(a + (b - a) * ratio)
-
-def lerp_float(a, b, ratio):
-    return (a + (b - a) * ratio)
-
-def distance(point):
-    return (point[0]**2 + point[1]**2 + point[2]**2) ** 0.5
-
-def dot(a, b):
-    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
-
-def inside_rand(tense):
-    x = random.random()
-    y = -tense * math.log(x)
-    return y
-
-# 生成中间心
-def genPoints(pointCount, heartScales):
-    result = np.empty((pointCount, 3))
-    index = 0
-    while index < pointCount:
-        # 生成随机点
-        x = random.random()
-        y = random.random()
-        z = random.random()
-
-        # 扣掉心中间的点
-        mheartValue = heart_func(x, 0.5, z, heartScales[1])
-        mid_ignore = random.random()
-        if mheartValue < 0 and mid_ignore < mid_point_ignore:
-            continue
-        
-        heartValue = heart_func(x, y, z, heartScales[0])
-        z_shrink = 0.01
-        sz = z - z_shrink
-        sheartValue = heart_func(x, y, sz, heartScales[1])
-
-        # 保留在心边上的点
-        if heartValue < 0 and sheartValue > 0:
-            result[index] = [x - 0.5, y - 0.5, z - 0.5]
-
-            # 向内扩散
-            len = 0.7
-            result[index] = result[index] * (1 - len * inside_rand(0.2))
-
-            # 重新赋予深度
-            newY = random.random() - 0.5
-            rheartValue = heart_func(result[index][0] + 0.5, newY + 0.5, result[index][2] + 0.5, heartScales[0])
-            if rheartValue > 0:
-                continue
-            result[index][1] = newY
-
-            # 删掉肚脐眼
-            dist = distance(result[index])
-            if dist < 0.12:
-                continue
-            
-            index = index + 1
-            if index % 100 == 0:
-                print("{ind} generated {per}%".format(ind=index, per=((index / pointCount) * 100)))
-
-    return result
-
-# 生成随机心
-def genRandPoints(pointCount, heartScales, maxVar, ratio):
-    result = np.empty((pointCount, 3))
-    index = 0
-    while index < pointCount:
-        x = random.random()
-        y = random.random()
-        z = random.random()
-        mheartValue = heart_func(x, 0.5, z, heartScales[1])
-        mid_ignore = random.random()
-        if mheartValue < 0 and mid_ignore < mid_point_ignore:
-            continue
-
-        heartValue = heart_func(x, y, z, heartScales[0])
-        sheartValue = heart_func(x, y, z, heartScales[1])
-
-        if heartValue < 0 and sheartValue > 0:
-            result[index] = [x - 0.5, y - 0.5, z - 0.5]
-            dist = distance(result[index])
-            if dist < 0.12:
-                continue
-
-            len = 0.7
-            result[index] = result[index] * (1 - len * inside_rand(0.2))
-            index = index + 1
-
-    for i in range(pointCount):
-        var = maxVar * ratio
-        randScale = 1 + random.normalvariate(0, var)
-        result[i] = result[i] * randScale
-
-    return result
-
-# 世界坐标到相机本地坐标
-def world_2_cameraLocalSapce(world_point):
-    new_point = world_point.copy()
-    new_point[1] = new_point[1] + camera_position[1]
-    return new_point
-
-# 相机本地坐标到相机空间坐标
-def cameraLocal_2_cameraSpace(cameraLocalPoint):
-    depth = distance(cameraLocalPoint)
-    cx = cameraLocalPoint[0] * (camera_close_plane / cameraLocalPoint[1])
-    cz = -cameraLocalPoint[2] * (cx / cameraLocalPoint[0])
-    cameraLocalPoint[0] = cx
-    cameraLocalPoint[1] = cz
-    return cameraLocalPoint, depth
-
-# 相机空间坐标到屏幕坐标
-def camerSpace_2_screenSpace(cameraSpace):
-    x = cameraSpace[0]
-    y = cameraSpace[1]
-
-    # convert to view space
-    centerx = canvas_width / 2
-    centery = canvas_height / 2
-    ratiox = canvas_width / world_width
-    ratioy = canvas_height / world_heigth
-
-    viewx = centerx + x * ratiox
-    viewy = canvas_height - (centery + y * ratioy)
-
-    cameraSpace[0] = viewx
-    cameraSpace[1] = viewy
-    return cameraSpace.astype(int)
-
-
-# 绘制世界坐标下的点
-def draw_point(worldPoint):
-    cameraLocal = world_2_cameraLocalSapce(worldPoint)
-    cameraSpsace, depth = cameraLocal_2_cameraSpace(cameraLocal)
-    screeSpace = camerSpace_2_screenSpace(cameraSpsace)
-
-    draw_size = int(random.random() * 3 + 1)
-    draw_on_buffer(screeSpace, depth, draw_size)
-
-# 绘制到缓存上
-def draw_on_buffer(screenPos, depth, draw_size):
-    if draw_size == 0:
-        return
-    elif draw_size == 1:
-        draw_point_on_buffer(screenPos[0], screenPos[1], color_strength, depth)
-    elif draw_size == 2:
-        draw_point_on_buffer(screenPos[0], screenPos[1], color_strength, depth)
-        draw_point_on_buffer(screenPos[0] + 1, screenPos[1] + 1, color_strength, depth)
-    elif draw_size == 3:
-        draw_point_on_buffer(screenPos[0], screenPos[1], color_strength, depth)
-        draw_point_on_buffer(screenPos[0] + 1, screenPos[1] + 1, color_strength, depth)
-        draw_point_on_buffer(screenPos[0] + 1, screenPos[1], color_strength, depth)
-    elif draw_size == 4:
-        draw_point_on_buffer(screenPos[0], screenPos[1], color_strength, depth)
-        draw_point_on_buffer(screenPos[0] + 1, screenPos[1], color_strength, depth)
-        draw_point_on_buffer(screenPos[0], screenPos[1] + 1, color_strength, depth)
-        draw_point_on_buffer(screenPos[0] + 1, screenPos[1] + 1, color_strength, depth)
-
-
-# 根据色调和颜色强度获取颜色
-def get_color(strength):
-    result = None
-    if strength >= 1:
-        result = colorsys.hsv_to_rgb(hue, 2 - strength, 1)
-    else:
-        result = colorsys.hsv_to_rgb(hue, 1, strength)
-    r = min(result[0] * 256, 255)
-    g = min(result[1] * 256, 255)
-    b = min(result[2] * 256, 255)
-    return np.array((r, g, b), dtype=int)
-
-# 可以根据深度做一些好玩的
-def draw_point_on_buffer(x, y, color, depth):
-    if x < 0 or x >= canvas_width or y < 0 or y >= canvas_height:
-        return
-
-    # 混合
-    strength = float(color) / 255
-    strength_buffer[x, y] = strength_buffer[x, y] + strength
-
-# 绘制缓存
-def draw_buffer_on_canvas(output = None):
-    render_buffer.fill(0)
-    for i in range(render_buffer.shape[0]):
-        for j in range(render_buffer.shape[1]):
-            render_buffer[i, j] = get_color(strength_buffer[i, j])
-    im = Image.fromarray(np.uint8(render_buffer))
-    im = im.rotate(-90)
-    if output is None:
-        plt.imshow(im)
-        plt.show()
-    else:
-        im.save(output)
-
-
-def paint_heart(ratio, randratio, outputFile = None):
-    global strength_buffer
-    global render_buffer
-    global points
-
-    # 清空缓存
-    strength_buffer.fill(0)
-
-    for i in range(fixed_point_size):
-        # 缩放
-        point = points[i] * lerp_vector(min_scale, max_scale, ratio)
-
-        # 球型场
-        dist = distance(point)
-        radius = 0.4
-        sphere_scale = radius / dist
-        point = point * lerp_float(0.9, sphere_scale, ratio * 0.3)
-
-        # 绘制
-        draw_point(point)
-
-    # 生成一组随机点
-    randPoints = genRandPoints(random_point_szie, random_scale_range, random_point_maxvar, randratio)
-    for i in range(random_point_szie):
-        # 绘制
-        draw_point(randPoints[i])
-
-    # 高斯模糊
-    for i in range(1):
-        strength_buffer = gaussian_filter(strength_buffer, sigma=0.8)
-
-    # 绘制缓存
-    draw_buffer_on_canvas(outputFile)
-
-def show_images():
-    img = None
-    for i in range(total_frames):
-        save_name = "{name}.{fmt}".format(name=i, fmt=image_fmt)
-        save_path = os.path.join(output_dir, save_name)
-        img = cv2.imread(save_path, cv2.IMREAD_ANYCOLOR)
-        cv2.imshow("Img", img)
-        cv2.waitKey(25)
-
-
-def gen_images():
-    global points
-
-    if not os.path.isdir(output_dir):
-        os.mkdir(output_dir)
+  }
+  .btn-2:before {
+    height: 0%;
+    width: 2px;
+  }
+  .btn-2:hover {
+    box-shadow:  4px 4px 6px 0 rgba(255,255,255,.5),
+                -4px -4px 6px 0 rgba(116, 125, 136, .5), 
+      inset -4px -4px 6px 0 rgba(255,255,255,.2),
+      inset 4px 4px 6px 0 rgba(0, 0, 0, .4);
+  }
+  
+  
+  /* 3 */
+  .btn-3 {
+    background: rgb(0,172,238);
+  background: linear-gradient(0deg, rgba(0,172,238,1) 0%, rgba(2,126,251,1) 100%);
+    width: 130px;
+    height: 40px;
+    line-height: 42px;
+    padding: 0;
+    border: none;
     
-    # 尝试加载或生成中间心
-    if not os.path.exists(points_file):
-        print("未发现缓存点，重新生成中")
-        points = genPoints(fixed_point_size, fixed_scale_range)
-        np.savetxt(points_file, points)
-    else:
-        print("发现缓存文件，跳过生成")
-        points = np.loadtxt(points_file)
-
-    for i in range(total_frames):
-        print("正在处理图片... ", i)
-        frame_ratio = float(i) / (total_frames - 1)
-        frame_ratio = frame_ratio ** 2
-        ratio = math.sin(frame_ratio * math.pi) * 0.743144
-        randratio = math.sin(frame_ratio * math.pi * 2 + total_frames / 2)
-        save_name = "{name}.{fmt}".format(name=i, fmt=image_fmt)
-        save_path = os.path.join(output_dir, save_name)
-        paint_heart(ratio, randratio, save_path)
-        print("图片已保存至", save_path)
-
-
-if __name__ == "__main__":
-    gen_images()
-    while True:
-        show_images()
+  }
+  .btn-3 span {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .btn-3:before,
+  .btn-3:after {
+    position: absolute;
+    content: "";
+    right: 0;
+    top: 0;
+     background: rgba(2,126,251,1);
+    transition: all 0.3s ease;
+  }
+  .btn-3:before {
+    height: 0%;
+    width: 2px;
+  }
+  .btn-3:after {
+    width: 0%;
+    height: 2px;
+  }
+  .btn-3:hover{
+     background: transparent;
+    box-shadow: none;
+  }
+  .btn-3:hover:before {
+    height: 100%;
+  }
+  .btn-3:hover:after {
+    width: 100%;
+  }
+  .btn-3 span:hover{
+     color: rgba(2,126,251,1);
+  }
+  .btn-3 span:before,
+  .btn-3 span:after {
+    position: absolute;
+    content: "";
+    left: 0;
+    bottom: 0;
+     background: rgba(2,126,251,1);
+    transition: all 0.3s ease;
+  }
+  .btn-3 span:before {
+    width: 2px;
+    height: 0%;
+  }
+  .btn-3 span:after {
+    width: 0%;
+    height: 2px;
+  }
+  .btn-3 span:hover:before {
+    height: 100%;
+  }
+  .btn-3 span:hover:after {
+    width: 100%;
+  }
+  
+  /* 4 */
+  .btn-4 {
+    background-color: #4dccc6;
+  background-image: linear-gradient(315deg, #4dccc6 0%, #96e4df 74%);
+    line-height: 42px;
+    padding: 0;
+    border: none;
+  }
+  .btn-4:hover{
+    background-color: #89d8d3;
+  background-image: linear-gradient(315deg, #89d8d3 0%, #03c8a8 74%);
+  }
+  .btn-4 span {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .btn-4:before,
+  .btn-4:after {
+    position: absolute;
+    content: "";
+    right: 0;
+    top: 0;
+     box-shadow:  4px 4px 6px 0 rgba(255,255,255,.9),
+                -4px -4px 6px 0 rgba(116, 125, 136, .2), 
+      inset -4px -4px 6px 0 rgba(255,255,255,.9),
+      inset 4px 4px 6px 0 rgba(116, 125, 136, .3);
+    transition: all 0.3s ease;
+  }
+  .btn-4:before {
+    height: 0%;
+    width: .1px;
+  }
+  .btn-4:after {
+    width: 0%;
+    height: .1px;
+  }
+  .btn-4:hover:before {
+    height: 100%;
+  }
+  .btn-4:hover:after {
+    width: 100%;
+  }
+  .btn-4 span:before,
+  .btn-4 span:after {
+    position: absolute;
+    content: "";
+    left: 0;
+    bottom: 0;
+    box-shadow:  4px 4px 6px 0 rgba(255,255,255,.9),
+                -4px -4px 6px 0 rgba(116, 125, 136, .2), 
+      inset -4px -4px 6px 0 rgba(255,255,255,.9),
+      inset 4px 4px 6px 0 rgba(116, 125, 136, .3);
+    transition: all 0.3s ease;
+  }
+  .btn-4 span:before {
+    width: .1px;
+    height: 0%;
+  }
+  .btn-4 span:after {
+    width: 0%;
+    height: .1px;
+  }
+  .btn-4 span:hover:before {
+    height: 100%;
+  }
+  .btn-4 span:hover:after {
+    width: 100%;
+  }
+  
+  /* 5 */
+  .btn-5 {
+    width: 130px;
+    height: 40px;
+    line-height: 42px;
+    padding: 0;
+    border: none;
+    background: rgb(255,27,0);
+  background: linear-gradient(0deg, rgba(255,27,0,1) 0%, rgba(251,75,2,1) 100%);
+  }
+  .btn-5:hover {
+    color: #f0094a;
+    background: transparent;
+     box-shadow:none;
+  }
+  .btn-5:before,
+  .btn-5:after{
+    content:'';
+    position:absolute;
+    top:0;
+    right:0;
+    height:2px;
+    width:0;
+    background: #f0094a;
+    box-shadow:
+     -1px -1px 5px 0px #fff,
+     7px 7px 20px 0px #0003,
+     4px 4px 5px 0px #0002;
+    transition:400ms ease all;
+  }
+  .btn-5:after{
+    right:inherit;
+    top:inherit;
+    left:0;
+    bottom:0;
+  }
+  .btn-5:hover:before,
+  .btn-5:hover:after{
+    width:100%;
+    transition:800ms ease all;
+  }
+  
+  
+  /* 6 */
+  .btn-6 {
+    background: rgb(247,150,192);
+  background: radial-gradient(circle, rgba(247,150,192,1) 0%, rgba(118,174,241,1) 100%);
+    line-height: 42px;
+    padding: 0;
+    border: none;
+  }
+  .btn-6 span {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .btn-6:before,
+  .btn-6:after {
+    position: absolute;
+    content: "";
+    height: 0%;
+    width: 1px;
+   box-shadow:
+     -1px -1px 20px 0px rgba(255,255,255,1),
+     -4px -4px 5px 0px rgba(255,255,255,1),
+     7px 7px 20px 0px rgba(0,0,0,.4),
+     4px 4px 5px 0px rgba(0,0,0,.3);
+  }
+  .btn-6:before {
+    right: 0;
+    top: 0;
+    transition: all 500ms ease;
+  }
+  .btn-6:after {
+    left: 0;
+    bottom: 0;
+    transition: all 500ms ease;
+  }
+  .btn-6:hover{
+    background: transparent;
+    color: #76aef1;
+    box-shadow: none;
+  }
+  .btn-6:hover:before {
+    transition: all 500ms ease;
+    height: 100%;
+  }
+  .btn-6:hover:after {
+    transition: all 500ms ease;
+    height: 100%;
+  }
+  .btn-6 span:before,
+  .btn-6 span:after {
+    position: absolute;
+    content: "";
+    box-shadow:
+     -1px -1px 20px 0px rgba(255,255,255,1),
+     -4px -4px 5px 0px rgba(255,255,255,1),
+     7px 7px 20px 0px rgba(0,0,0,.4),
+     4px 4px 5px 0px rgba(0,0,0,.3);
+  }
+  .btn-6 span:before {
+    left: 0;
+    top: 0;
+    width: 0%;
+    height: .5px;
+    transition: all 500ms ease;
+  }
+  .btn-6 span:after {
+    right: 0;
+    bottom: 0;
+    width: 0%;
+    height: .5px;
+    transition: all 500ms ease;
+  }
+  .btn-6 span:hover:before {
+    width: 100%;
+  }
+  .btn-6 span:hover:after {
+    width: 100%;
+  }
+  
+  /* 7 */
+  .btn-7 {
+  background: linear-gradient(0deg, rgba(255,151,0,1) 0%, rgba(251,75,2,1) 100%);
+    line-height: 42px;
+    padding: 0;
+    border: none;
+  }
+  .btn-7 span {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .btn-7:before,
+  .btn-7:after {
+    position: absolute;
+    content: "";
+    right: 0;
+    bottom: 0;
+    background: rgba(251,75,2,1);
+    box-shadow:
+     -7px -7px 20px 0px rgba(255,255,255,.9),
+     -4px -4px 5px 0px rgba(255,255,255,.9),
+     7px 7px 20px 0px rgba(0,0,0,.2),
+     4px 4px 5px 0px rgba(0,0,0,.3);
+    transition: all 0.3s ease;
+  }
+  .btn-7:before{
+     height: 0%;
+     width: 2px;
+  }
+  .btn-7:after {
+    width: 0%;
+    height: 2px;
+  }
+  .btn-7:hover{
+    color: rgba(251,75,2,1);
+    background: transparent;
+  }
+  .btn-7:hover:before {
+    height: 100%;
+  }
+  .btn-7:hover:after {
+    width: 100%;
+  }
+  .btn-7 span:before,
+  .btn-7 span:after {
+    position: absolute;
+    content: "";
+    left: 0;
+    top: 0;
+    background: rgba(251,75,2,1);
+    box-shadow:
+     -7px -7px 20px 0px rgba(255,255,255,.9),
+     -4px -4px 5px 0px rgba(255,255,255,.9),
+     7px 7px 20px 0px rgba(0,0,0,.2),
+     4px 4px 5px 0px rgba(0,0,0,.3);
+    transition: all 0.3s ease;
+  }
+  .btn-7 span:before {
+    width: 2px;
+    height: 0%;
+  }
+  .btn-7 span:after {
+    height: 2px;
+    width: 0%;
+  }
+  .btn-7 span:hover:before {
+    height: 100%;
+  }
+  .btn-7 span:hover:after {
+    width: 100%;
+  }
+  
+  /* 8 */
+  .btn-8 {
+    background-color: #f0ecfc;
+  background-image: linear-gradient(315deg, #f0ecfc 0%, #c797eb 74%);
+    line-height: 42px;
+    padding: 0;
+    border: none;
+  }
+  .btn-8 span {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .btn-8:before,
+  .btn-8:after {
+    position: absolute;
+    content: "";
+    right: 0;
+    bottom: 0;
+    background: #c797eb;
+    /*box-shadow:  4px 4px 6px 0 rgba(255,255,255,.5),
+                -4px -4px 6px 0 rgba(116, 125, 136, .2), 
+      inset -4px -4px 6px 0 rgba(255,255,255,.5),
+      inset 4px 4px 6px 0 rgba(116, 125, 136, .3);*/
+    transition: all 0.3s ease;
+  }
+  .btn-8:before{
+     height: 0%;
+     width: 2px;
+  }
+  .btn-8:after {
+    width: 0%;
+    height: 2px;
+  }
+  .btn-8:hover:before {
+    height: 100%;
+  }
+  .btn-8:hover:after {
+    width: 100%;
+  }
+  .btn-8:hover{
+    background: transparent;
+  }
+  .btn-8 span:hover{
+    color: #c797eb;
+  }
+  .btn-8 span:before,
+  .btn-8 span:after {
+    position: absolute;
+    content: "";
+    left: 0;
+    top: 0;
+    background: #c797eb;
+    /*box-shadow:  4px 4px 6px 0 rgba(255,255,255,.5),
+                -4px -4px 6px 0 rgba(116, 125, 136, .2), 
+      inset -4px -4px 6px 0 rgba(255,255,255,.5),
+      inset 4px 4px 6px 0 rgba(116, 125, 136, .3);*/
+    transition: all 0.3s ease;
+  }
+  .btn-8 span:before {
+    width: 2px;
+    height: 0%;
+  }
+  .btn-8 span:after {
+    height: 2px;
+    width: 0%;
+  }
+  .btn-8 span:hover:before {
+    height: 100%;
+  }
+  .btn-8 span:hover:after {
+    width: 100%;
+  }
+    
+  
+  /* 9 */
+  .btn-9 {
+    border: none;
+    transition: all 0.3s ease;
+    overflow: hidden;
+  }
+  .btn-9:after {
+    position: absolute;
+    content: " ";
+    z-index: -1;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+     background-color: #1fd1f9;
+  background-image: linear-gradient(315deg, #1fd1f9 0%, #b621fe 74%);
+    transition: all 0.3s ease;
+  }
+  .btn-9:hover {
+    background: transparent;
+    box-shadow:  4px 4px 6px 0 rgba(255,255,255,.5),
+                -4px -4px 6px 0 rgba(116, 125, 136, .2), 
+      inset -4px -4px 6px 0 rgba(255,255,255,.5),
+      inset 4px 4px 6px 0 rgba(116, 125, 136, .3);
+    color: #fff;
+  }
+  .btn-9:hover:after {
+    -webkit-transform: scale(2) rotate(180deg);
+    transform: scale(2) rotate(180deg);
+    box-shadow:  4px 4px 6px 0 rgba(255,255,255,.5),
+                -4px -4px 6px 0 rgba(116, 125, 136, .2), 
+      inset -4px -4px 6px 0 rgba(255,255,255,.5),
+      inset 4px 4px 6px 0 rgba(116, 125, 136, .3);
+  }
+  
+  /* 10 */
+  .btn-10 {
+    background: rgb(22,9,240);
+  background: linear-gradient(0deg, rgba(22,9,240,1) 0%, rgba(49,110,244,1) 100%);
+    color: #fff;
+    border: none;
+    transition: all 0.3s ease;
+    overflow: hidden;
+  }
+  .btn-10:after {
+    position: absolute;
+    content: " ";
+    top: 0;
+    left: 0;
+    z-index: -1;
+    width: 100%;
+    height: 100%;
+    transition: all 0.3s ease;
+    -webkit-transform: scale(.1);
+    transform: scale(.1);
+  }
+  .btn-10:hover {
+    color: #fff;
+    border: none;
+    background: transparent;
+  }
+  .btn-10:hover:after {
+    background: rgb(0,3,255);
+  background: linear-gradient(0deg, rgba(2,126,251,1) 0%,  rgba(0,3,255,1)100%);
+    -webkit-transform: scale(1);
+    transform: scale(1);
+  }
+  
+  /* 11 */
+  .btn-11 {
+    border: none;
+    background: rgb(251,33,117);
+      background: linear-gradient(0deg, rgba(251,33,117,1) 0%, rgba(234,76,137,1) 100%);
+      color: #fff;
+      overflow: hidden;
+  }
+  .btn-11:hover {
+      text-decoration: none;
+      color: #fff;
+  }
+  .btn-11:before {
+      position: absolute;
+      content: '';
+      display: inline-block;
+      top: -180px;
+      left: 0;
+      width: 30px;
+      height: 100%;
+      background-color: #fff;
+      animation: shiny-btn1 3s ease-in-out infinite;
+  }
+  .btn-11:hover{
+    opacity: .7;
+  }
+  .btn-11:active{
+    box-shadow:  4px 4px 6px 0 rgba(255,255,255,.3),
+                -4px -4px 6px 0 rgba(116, 125, 136, .2), 
+      inset -4px -4px 6px 0 rgba(255,255,255,.2),
+      inset 4px 4px 6px 0 rgba(0, 0, 0, .2);
+  }
+  
+  
+  @-webkit-keyframes shiny-btn1 {
+      0% { -webkit-transform: scale(0) rotate(45deg); opacity: 0; }
+      80% { -webkit-transform: scale(0) rotate(45deg); opacity: 0.5; }
+      81% { -webkit-transform: scale(4) rotate(45deg); opacity: 1; }
+      100% { -webkit-transform: scale(50) rotate(45deg); opacity: 0; }
+  }
+  
+  
+  /* 12 */
+  .btn-12{
+    position: relative;
+    right: 20px;
+    bottom: 20px;
+    border:none;
+    box-shadow: none;
+    width: 130px;
+    height: 40px;
+    line-height: 42px;
+    -webkit-perspective: 230px;
+    perspective: 230px;
+  }
+  .btn-12 span {
+    background: rgb(0,172,238);
+  background: linear-gradient(0deg, rgba(0,172,238,1) 0%, rgba(2,126,251,1) 100%);
+    display: block;
+    position: absolute;
+    width: 130px;
+    height: 40px;
+    box-shadow:inset 2px 2px 2px 0px rgba(255,255,255,.5),
+     7px 7px 20px 0px rgba(0,0,0,.1),
+     4px 4px 5px 0px rgba(0,0,0,.1);
+    border-radius: 5px;
+    margin:0;
+    text-align: center;
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+    -webkit-transition: all .3s;
+    transition: all .3s;
+  }
+  .btn-12 span:nth-child(1) {
+    box-shadow:
+     -7px -7px 20px 0px #fff9,
+     -4px -4px 5px 0px #fff9,
+     7px 7px 20px 0px #0002,
+     4px 4px 5px 0px #0001;
+    -webkit-transform: rotateX(90deg);
+    -moz-transform: rotateX(90deg);
+    transform: rotateX(90deg);
+    -webkit-transform-origin: 50% 50% -20px;
+    -moz-transform-origin: 50% 50% -20px;
+    transform-origin: 50% 50% -20px;
+  }
+  .btn-12 span:nth-child(2) {
+    -webkit-transform: rotateX(0deg);
+    -moz-transform: rotateX(0deg);
+    transform: rotateX(0deg);
+    -webkit-transform-origin: 50% 50% -20px;
+    -moz-transform-origin: 50% 50% -20px;
+    transform-origin: 50% 50% -20px;
+  }
+  .btn-12:hover span:nth-child(1) {
+    box-shadow:inset 2px 2px 2px 0px rgba(255,255,255,.5),
+     7px 7px 20px 0px rgba(0,0,0,.1),
+     4px 4px 5px 0px rgba(0,0,0,.1);
+    -webkit-transform: rotateX(0deg);
+    -moz-transform: rotateX(0deg);
+    transform: rotateX(0deg);
+  }
+  .btn-12:hover span:nth-child(2) {
+    box-shadow:inset 2px 2px 2px 0px rgba(255,255,255,.5),
+     7px 7px 20px 0px rgba(0,0,0,.1),
+     4px 4px 5px 0px rgba(0,0,0,.1);
+   color: transparent;
+    -webkit-transform: rotateX(-90deg);
+    -moz-transform: rotateX(-90deg);
+    transform: rotateX(-90deg);
+  }
+  
+  
+  /* 13 */
+  .btn-13 {
+    background-color: #89d8d3;
+  background-image: linear-gradient(315deg, #89d8d3 0%, #03c8a8 74%);
+    border: none;
+    z-index: 1;
+  }
+  .btn-13:after {
+    position: absolute;
+    content: "";
+    width: 100%;
+    height: 0;
+    bottom: 0;
+    left: 0;
+    z-index: -1;
+    border-radius: 5px;
+     background-color: #4dccc6;
+  background-image: linear-gradient(315deg, #4dccc6 0%, #96e4df 74%);
+    box-shadow:
+     -7px -7px 20px 0px #fff9,
+     -4px -4px 5px 0px #fff9,
+     7px 7px 20px 0px #0002,
+     4px 4px 5px 0px #0001;
+    transition: all 0.3s ease;
+  }
+  .btn-13:hover {
+    color: #fff;
+  }
+  .btn-13:hover:after {
+    top: 0;
+    height: 100%;
+  }
+  .btn-13:active {
+    top: 2px;
+  }
+  
+  
+  /* 14 */
+  .btn-14 {
+    background: rgb(255,151,0);
+    border: none;
+    z-index: 1;
+  }
+  .btn-14:after {
+    position: absolute;
+    content: "";
+    width: 100%;
+    height: 0;
+    top: 0;
+    left: 0;
+    z-index: -1;
+    border-radius: 5px;
+    background-color: #eaf818;
+    background-image: linear-gradient(315deg, #eaf818 0%, #f6fc9c 74%);
+    box-shadow:inset 2px 2px 2px 0px rgba(255,255,255,.5);
+     7px 7px 20px 0px rgba(0,0,0,.1),
+     4px 4px 5px 0px rgba(0,0,0,.1);
+    transition: all 0.3s ease;
+  }
+  .btn-14:hover {
+    color: #000;
+  }
+  .btn-14:hover:after {
+    top: auto;
+    bottom: 0;
+    height: 100%;
+  }
+  .btn-14:active {
+    top: 2px;
+  }
+  
+  /* 15 */
+  .btn-15 {
+    background: #b621fe;
+    border: none;
+    z-index: 1;
+  }
+  .btn-15:after {
+    position: absolute;
+    content: "";
+    width: 0;
+    height: 100%;
+    top: 0;
+    right: 0;
+    z-index: -1;
+    background-color: #663dff;
+    border-radius: 5px;
+     box-shadow:inset 2px 2px 2px 0px rgba(255,255,255,.5),
+     7px 7px 20px 0px rgba(0,0,0,.1),
+     4px 4px 5px 0px rgba(0,0,0,.1);
+    transition: all 0.3s ease;
+  }
+  .btn-15:hover {
+    color: #fff;
+  }
+  .btn-15:hover:after {
+    left: 0;
+    width: 100%;
+  }
+  .btn-15:active {
+    top: 2px;
+  }
+  
+  
+  /* 16 */
+  .btn-16 {
+    border: none;
+    color: #000;
+  }
+  .btn-16:after {
+    position: absolute;
+    content: "";
+    width: 0;
+    height: 100%;
+    top: 0;
+    left: 0;
+    direction: rtl;
+    z-index: -1;
+    box-shadow:
+     -7px -7px 20px 0px #fff9,
+     -4px -4px 5px 0px #fff9,
+     7px 7px 20px 0px #0002,
+     4px 4px 5px 0px #0001;
+    transition: all 0.3s ease;
+  }
+  .btn-16:hover {
+    color: #000;
+  }
+  .btn-16:hover:after {
+    left: auto;
+    right: 0;
+    width: 100%;
+  }
+  .btn-16:active {
+    top: 2px;
+  }
